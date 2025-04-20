@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { signInWithGoogle, signOutUser, auth, sendMessage, getMessages } from './firebase';
+import { signInWithGoogle, signOutUser, auth } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
-const socket = io('https://chitchat-backend-op5h.onrender.com'); // Updated URL ✅
+const socket = io('https://chitchat-backend-op5h.onrender.com'); // Use your backend URL
 
 function App() {
   const localVideo = useRef(null);
@@ -11,8 +11,6 @@ function App() {
   const peerRef = useRef(null);
   const [inCall, setInCall] = useState(false);
   const [user, setUser] = useState(null);
-  const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState([]);
   const peerIdRef = useRef(null);
 
   useEffect(() => {
@@ -20,15 +18,6 @@ function App() {
       setUser(user || null);
     });
   }, []);
-
-  useEffect(() => {
-    if (user) {
-      const unsubscribe = getMessages((messages) => {
-        setMessages(messages);
-      });
-      return () => unsubscribe();
-    }
-  }, [user]);
 
   const createPeerConnection = () => {
     return new RTCPeerConnection({
@@ -114,16 +103,9 @@ function App() {
     };
   }, []);
 
-  const handleSendMessage = async () => {
-    if (message.trim()) {
-      await sendMessage(message);
-      setMessage('');
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center gap-6 p-6">
-      <h1 className="text-3xl font-bold">ChitChat Clone</h1>
+      <h1 className="text-3xl font-bold">ChitChat Video Call</h1>
 
       {!user ? (
         <button
@@ -154,35 +136,9 @@ function App() {
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded mt-4"
               onClick={startCall}
             >
-              Start Chat
+              Start Video Chat
             </button>
           )}
-
-          <div className="w-full mt-6 flex flex-col gap-2">
-            <div className="overflow-y-scroll max-h-64 bg-gray-800 p-4 rounded">
-              {messages.map((msg, index) => (
-                <div key={index} className="text-sm">
-                  <strong>{msg.text}</strong>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-2 mt-2">
-              <input
-                type="text"
-                className="flex-grow p-2 bg-gray-700 text-white rounded"
-                placeholder="Type a message..."
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-              />
-              <button
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded"
-                onClick={handleSendMessage}
-              >
-                Send
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>
