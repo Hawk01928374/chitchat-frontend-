@@ -1,35 +1,192 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React, { useState, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
+import { signInWithGoogle, signOutUser, auth, sendMessage, getMessages } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+
+const socket = io('https://chitchat-backend-op5h.onrender.com'); // Updated URL ✅
 
 function App() {
-  const [count, setCount] = useState(0)
+  const localVideo = useRef(null);
+  const remoteVideo = useRef(null);
+  const peerRef = useRef(null);
+  const [inCall, setInCall] = useState(false);
+  const [user, setUser] = useState(null);
+  const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState([]);
+  const peerIdRef = useRef(null);
+
+  useEffect(() => {
+    onAuthStateChanged(auth, (user) => {
+      setUser(user || null);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      const unsubscribe = getMessages((messages) => {
+        setMessages(messages);
+      });
+      return () => unsubscribe();
+    }
+  }, [user]);
+
+  const createPeerConnection = () => {
+    return new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        {
+          urls: 'turn:relay.metered.ca:80',
+          username: 'openai',
+          credential: 'openai'
+        }
+      ]
+    });
+  };
+
+  const startCall = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localVideo.current.srcObject = stream;
+
+    peerRef.current = createPeerConnection();
+
+    stream.getTracks().forEach(track => {
+      peerRef.current.addTrack(track, stream);
+    });
+
+    peerRef.current.ontrack = e => {
+      remoteVideo.current.srcObject = e.streams[0];
+    };
+
+    peerRef.current.onicecandidate = event => {
+      if (event.candidate) {
+        socket.emit('ice-candidate', { candidate: event.candidate, target: null });
+      }
+    };
+
+    const offer = await peerRef.current.createOffer();
+    await peerRef.current.setLocalDescription(offer);
+    socket.emit('offer', { sdp: offer, target: null });
+
+    setInCall(true);
+  };
+
+  useEffect(() => {
+    socket.on('offer', async (data) => {
+      peerIdRef.current = data.caller;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localVideo.current.srcObject = stream;
+
+      peerRef.current = createPeerConnection();
+
+      stream.getTracks().forEach(track => {
+        peerRef.current.addTrack(track, stream);
+      });
+
+      peerRef.current.ontrack = e => {
+        remoteVideo.current.srcObject = e.streams[0];
+      };
+
+      peerRef.current.onicecandidate = event => {
+        if (event.candidate) {
+          socket.emit('ice-candidate', { candidate: event.candidate, target: data.caller });
+        }
+      };
+
+      await peerRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      const answer = await peerRef.current.createAnswer();
+      await peerRef.current.setLocalDescription(answer);
+      socket.emit('answer', { sdp: answer, target: data.caller });
+
+      setInCall(true);
+    });
+
+    socket.on('answer', async (data) => {
+      await peerRef.current.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    });
+
+    socket.on('ice-candidate', (data) => {
+      peerRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  const handleSendMessage = async () => {
+    if (message.trim()) {
+      await sendMessage(message);
+      setMessage('');
+    }
+  };
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center gap-6 p-6">
+      <h1 className="text-3xl font-bold">ChitChat Clone</h1>
+
+      {!user ? (
+        <button
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded"
+          onClick={signInWithGoogle}
+        >
+          Sign In with Google
         </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+      ) : (
+        <div>
+          <div className="mb-4">
+            <span className="font-bold">{user.displayName}</span>
+            <button
+              className="ml-4 text-sm text-red-500"
+              onClick={signOutUser}
+            >
+              Sign Out
+            </button>
+          </div>
+
+          <div className="flex gap-4">
+            <video ref={localVideo} autoPlay playsInline className="w-64 h-48 bg-black" />
+            <video ref={remoteVideo} autoPlay playsInline className="w-64 h-48 bg-black" />
+          </div>
+
+          {!inCall && (
+            <button
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded mt-4"
+              onClick={startCall}
+            >
+              Start Chat
+            </button>
+          )}
+
+          <div className="w-full mt-6 flex flex-col gap-2">
+            <div className="overflow-y-scroll max-h-64 bg-gray-800 p-4 rounded">
+              {messages.map((msg, index) => (
+                <div key={index} className="text-sm">
+                  <strong>{msg.text}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="text"
+                className="flex-grow p-2 bg-gray-700 text-white rounded"
+                placeholder="Type a message..."
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+              />
+              <button
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded"
+                onClick={handleSendMessage}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-export default App
+export default App;
