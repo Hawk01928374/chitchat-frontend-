@@ -1,13 +1,65 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chitchat - Random Matchmaking</title>
+</head>
+<body>
+  <h1>Welcome to Chitchat</h1>
+  <p id="status">Connecting...</p>
+  
+  <div id="chat" style="display:none;">
+    <p>Matched with user: <span id="partnerId"></span></p>
+    <input id="msgInput" type="text" placeholder="Type message..." />
+    <button onclick="sendMessage()">Send</button>
+    <ul id="messages"></ul>
+  </div>
+
+  <!-- Socket.IO Client -->
+  <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
+
+  <script>
+    const socket = io("https://chitchat-backend-op5h.onrender.com"); // Make sure the URL is correct
+
+    const status = document.getElementById("status");
+    const chat = document.getElementById("chat");
+    const partnerIdSpan = document.getElementById("partnerId");
+    const messages = document.getElementById("messages");
+    const msgInput = document.getElementById("msgInput");
+
+    socket.on("connect", () => {
+      status.innerText = "Connected to server. Waiting for a match...";
+    });
+
+    // When a match is found
+    socket.on("match", ({ userId }) => {
+      status.innerText = "🎉 Matched!";
+      chat.style.display = "block";
+      partnerIdSpan.textContent = userId;
+    });
+
+    // When a message is received
+    socket.on("message", (data) => {
+      const li = document.createElement("li");
+      li.innerText = `Stranger: ${data}`;
+      messages.appendChild(li);
+    });
+
+    // Sending a message
+    function sendMessage() {
+      const msg = msgInput.value;
+      if (!msg) return;
+      socket.emit("message", msg);
+      const li = document.createElement("li");
+      li.innerText = `You: ${msg}`;
+      messages.appendChild(li);
+      msgInput.value = "";
+    }
+
+    socket.on("disconnect", () => {
+      status.innerText = "Disconnected from server.";
+    });
+  </script>
+</body>
 </html>
